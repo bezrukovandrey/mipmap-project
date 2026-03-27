@@ -1,11 +1,107 @@
 import numpy as np
 
+# mipmap generation
+def generateMipmaps(texture, method):
+    h,w = texture.shape[0], texture.shape[1]
+    nb_levels = int(np.floor(np.log2(max(h,w)))) + 1
+    mipmaps = [texture.astype(np.float32)]
+    for level in range (1, nb_levels) :
+        prev = mipmaps[level - 1]
+        prev_h, prev_w = prev.shape[0], prev.shape[1]
+        next_h, next_w = max(1, prev_h//2), max(1, prev_w//2)
+
+        next = np.zeros((next_h, next_w, 3), dtype=np.float32)
+
+        if method == 'nearest' :
+            for i in range(next_h) :
+                for j in range(next_w) :
+                    next[i][j] = prev[i*2][j*2]
+
+        elif method == 'box' :
+            for i in range(next_h) :
+                for j in range(next_w) :
+                    next[i][j] = np.mean(prev[2*i:2*i+2, 2*j:2*j+2], axis=(0,1))
+
+        elif method == 'gaussian' :
+            kernel = np.array([[1, 2, 1], [2, 4, 2], [1, 2, 1]]) / 16.0
+            padded_prev = np.pad(prev, ((1,1),(1,1),(0,0)), mode='reflect')
+            for i in range(next_h) :
+                for j in range(next_w) :
+                    region = padded_prev[2*i : 2*i+3, 2*j : 2*j+3]
+                    next[i][j] = np.sum(region * kernel[:,:,None], axis=(0,1))
+
+        else:
+            raise ValueError("This method for mipmap generation doesn't exist")
+
+        mipmaps.append(next)
+    return mipmaps
+
+
+# sample one level
 def sample(texture, u, v) : 
 
     u = int(u * texture.shape[0])
     v = int((1-v) * texture.shape[1])
     return texture[v,u] / 255.0
     pass
+
+def sampleBilinear(texture, u, v) : 
+
+    x = u * (texture.shape[0]-1)
+    y = (1-v) * (texture.shape[1]-1)
+
+    x0 = int(x)
+    x1 = x0 + 1
+    x1 = min(x1, texture.shape[0]-1)
+    y0 = int(y)
+    y1 = y0 + 1
+    y1 = min(y1, texture.shape[1]-1)
+   
+    tx = x - x0
+    ty = y - y0
+
+    c00 = texture[x0,y0] / 255.0
+    c10 = texture[x1,y0] / 255.0
+    c01 = texture[x0,y1] / 255.0
+    c11 = texture[x1,y1] / 255.0
+
+    c0 = (1-tx)*c00 + tx*c10
+    c1 = (1-tx)*c01 + tx*c11
+
+    c = (1-ty)*c0 + ty*c1
+
+    return c
+
+# sample with mipmaps
+def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method):
+
+    if mip_method == 'nearest' :
+        lod = int(round(lod))
+        lod = min(lod, len(mipmaps)-1)
+
+        if texel_method == 'nearest' :
+            return sample(mipmaps[lod], u, v)
+            
+        elif texel_method == 'bilinear' :
+            return sampleBilinear(mipmaps[lod], u, v)
+        
+        else:
+            raise ValueError("Only nearest and bilinear methods for texel sampling are supported")
+
+    elif mip_method == 'trilinear' :
+        lod0 = int(np.floor(lod))
+        lod1 = int(np.ceil(lod))
+        lod0 = min(lod0, len(mipmaps)-1)
+        lod1 = min(lod1, len(mipmaps)-1)
+
+        c0 = sampleBilinear(mipmaps[lod0], u, v)
+        c1 = sampleBilinear(mipmaps[lod1], u, v)
+
+        t = lod - lod0
+        return (1-t)*c0 + t*c1
+    
+    else:
+        raise ValueError("This method for mipmap sampling doesn't exist")
 
 
 class Fragment:
