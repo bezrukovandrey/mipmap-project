@@ -9,7 +9,7 @@ start = time.time()
 
 
 from graphicPipeline import GraphicPipeline
-
+from graphicPipeline import generateMipmaps
 
 pipeline = GraphicPipeline(width,height)
 
@@ -46,6 +46,9 @@ from numpy import asarray
 # Open the image form working directory
 image = asarray(Image.open('suzanne.png'))
 
+mipmapMethod = 'nearest'
+texelMethod = 'nearest'
+mipmaps = generateMipmaps(image, mipmapMethod)
 
 data = dict([
   ('viewMatrix',cam.getMatrix()),
@@ -53,7 +56,11 @@ data = dict([
   ('cameraPosition',position),
   ('lightPosition',lightPosition),
   ('texture', image),
+  ('mipmaps', mipmaps),
+  ('mipmapMethod', mipmapMethod),
+  ('texelMethod', texelMethod)
 ])
+
 
 start = time.time()
 
@@ -65,3 +72,5 @@ print(end - start)
 import matplotlib.pyplot as plt
 imgplot = plt.imshow(pipeline.image)
 plt.show()
+
+

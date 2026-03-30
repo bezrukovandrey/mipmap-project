@@ -105,11 +105,12 @@ def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method):
 
 
 class Fragment:
-    def __init__(self, x : int, y : int, depth : float, interpolated_data ):
+    def __init__(self, x : int, y : int, depth : float, interpolated_data, properties):
         self.x = x
         self.y = y
         self.depth = depth
         self.interpolated_data = interpolated_data
+        self.properties = properties
         self.output = []
 
 def edgeSide(p, v0, v1) : 
@@ -180,6 +181,34 @@ class GraphicPipeline:
         v2_image[0] = (v2[0]+1.0)/2.0 * self.width 
         v2_image[1] = (v2[1]+1.0)/2.0 * self.height 
 
+
+        # screen coordinates of the triangle
+        x0, y0 = v0_image[0], v0_image[1]
+        x1, y1 = v1_image[0], v1_image[1]
+        x2, y2 = v2_image[0], v2_image[1]
+
+        # texture coordinates of the triangle
+        u0_tex, v0_tex = v0[12:14]
+        u1_tex, v1_tex = v1[12:14]
+        u2_tex, v2_tex = v2[12:14]
+
+        # derrivatives computation
+        det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+
+        du_dx = ((u1_tex - u0_tex) * (y2 - y0) - (u2_tex - u0_tex) * (y1 - y0)) / det
+        du_dy = (-(u1_tex - u0_tex) * (x2 - x0) + (u2_tex - u0_tex) * (x1 - x0)) / det
+
+        dv_dx = ((v1_tex - v0_tex) * (y2 - y0) - (v2_tex - v0_tex) * (y1 - y0)) / det
+        dv_dy = (-(v1_tex - v0_tex) * (x2 - x0) + (v2_tex - v0_tex) * (x1 - x0)) / det
+
+        fragment_properties = dict([
+            ('du_dx', du_dx),
+            ('du_dy', du_dy),
+            ('dv_dx', dv_dx),
+            ('dv_dy', dv_dy)
+        ])
+
+
         #compute the two point forming the AABBox
         A = np.min(np.array([v0_image,v1_image,v2_image]), axis = 0)
         B = np.max(np.array([v0_image,v1_image,v2_image]), axis = 0)
@@ -230,7 +259,7 @@ class GraphicPipeline:
                     interpolated_data = v0[3:l] * lambda0 + v1[3:l] * lambda1 + v2[3:l] * lambda2
                     
                     #Emiting Fragment
-                    fragments.append(Fragment(i,j,z, interpolated_data))
+                    fragments.append(Fragment(i,j,z, interpolated_data, fragment_properties))
 
         return fragments
     
@@ -256,8 +285,28 @@ class GraphicPipeline:
         phong = ka * ambient + kd * diffuse + ks * specular
         phong = np.ceil(phong*4 +1 )/6.0
 
-        texture = sample(data['texture'], fragment.interpolated_data[9], fragment.interpolated_data[10])
 
+        # find LOD
+        tex_h, tex_w, _ = data['texture'].shape
+
+        rho_x = np.sqrt((fragment.properties['du_dx'] * tex_w)**2 + (fragment.properties['dv_dx'] * tex_h)**2)
+        rho_y = np.sqrt((fragment.properties['du_dy'] * tex_w)**2 + (fragment.properties['dv_dy'] * tex_h)**2)
+
+        rho = max(rho_x, rho_y)
+        lod = np.log2(max(rho, 1e-8))
+        lod = max(lod, 0.0)
+
+        texture = sampleMipmaps(
+            data['mipmaps'],
+            fragment.interpolated_data[9], # u
+            fragment.interpolated_data[10], # v
+            lod,
+            data['mipmapMethod'],
+            data['texelMethod']
+        )
+
+        # old
+        # texture = sample(data['texture'], fragment.interpolated_data[9], fragment.interpolated_data[10])
 
         color = np.array([phong,phong,phong]) * texture
 
