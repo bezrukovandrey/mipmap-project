@@ -73,7 +73,7 @@ def sampleBilinear(texture, u, v) :
     return c
 
 # sample with mipmaps
-def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method):
+def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method, fragment_properties=None):
 
     if mip_method == 'nearest' :
         lod = int(round(lod))
@@ -99,6 +99,61 @@ def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method):
 
         t = lod - lod0
         return (1-t)*c0 + t*c1
+    elif mip_method == 'anisotropic' :
+        tex_h, tex_w, _ = mipmaps[0].shape
+
+        du_dx = fragment_properties['du_dx'] * tex_w
+        dv_dx = fragment_properties['dv_dx'] * tex_h
+        du_dy = fragment_properties['du_dy'] * tex_w
+        dv_dy = fragment_properties['dv_dy'] * tex_h
+
+        #dervivative vectors
+        dx = np.array([du_dx, dv_dx])
+        dy = np.array([du_dy, dv_dy])
+
+        len_x = np.linalg.norm(dx)
+        len_y = np.linalg.norm(dy)
+
+        len_x = max(len_x, 1e-8) # euclidean norms of derivative vectors
+        len_y = max(len_y, 1e-8)
+
+        max_aniso = 8.0  #how many samples we want to process along the major axis at most (could be another nt, like 16)
+        if len_x > len_y:
+            major = dx
+            minor_len = len_y
+            ratio = len_x / len_y
+        else:
+            major = dy
+            minor_len = len_x
+            ratio = len_y / len_x
+
+        samples = int(min(max_aniso, max(1.0, ratio)))
+
+        major_dir = major / np.linalg.norm(major) #normalizing the vector
+
+        lod = np.log2(max(minor_len, 1e-8))  # computing lod based on minor axis
+        lod = max(lod, 0.0)
+
+        # accumulating the final colour
+        color = np.zeros(3)
+
+        for i in range(samples):
+            # distribute samples along major axis
+            t = (i + 0.5) / samples - 0.5
+            u_offset = u + t * major_dir[0] / tex_w
+            v_offset = v + t * major_dir[1] / tex_h
+
+            c = sampleMipmaps(
+                mipmaps,
+                u_offset,
+                v_offset,
+                lod,
+                'trilinear',
+                'bilinear'
+            )
+            color += c
+
+        return color / samples
     
     else:
         raise ValueError("This method for mipmap sampling doesn't exist")
@@ -302,7 +357,8 @@ class GraphicPipeline:
             fragment.interpolated_data[10], # v
             lod,
             data['mipmapMethod'],
-            data['texelMethod']
+            data['texelMethod'],
+            fragment.properties #anisostropic filters needs partial derivatives for the fragment
         )
 
         # old
