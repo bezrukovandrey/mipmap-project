@@ -2,20 +2,18 @@ import numpy as np
 
 # mipmap generation
 def generateMipmaps(texture, method):
-    h,w = texture.shape[0], texture.shape[1]
-    nb_levels = int(np.floor(np.log2(max(h,w)))) + 1
     mipmaps = [texture.astype(np.float32)]
-    for level in range (1, nb_levels) :
-        prev = mipmaps[level - 1]
+    while mipmaps[-1].shape[0] > 1 or mipmaps[-1].shape[1] > 1:
+        prev = mipmaps[-1]
         prev_h, prev_w = prev.shape[0], prev.shape[1]
-        next_h, next_w = max(1, prev_h//2), max(1, prev_w//2)
+        next_h, next_w = max(1, (prev_h + 1)//2), max(1, (prev_w + 1)//2)
 
-        next = np.zeros((next_h, next_w, 3), dtype=np.float32)
+        next = np.zeros((next_h, next_w, prev.shape[2]), dtype=np.float32)
 
         if method == 'nearest' :
             for i in range(next_h) :
                 for j in range(next_w) :
-                    next[i][j] = prev[i*2][j*2]
+                    next[i][j] = prev[min(i*2, prev_h - 1)][min(j*2, prev_w - 1)]
 
         elif method == 'box' :
             for i in range(next_h) :
@@ -40,29 +38,37 @@ def generateMipmaps(texture, method):
 # sample one level
 def sample(texture, u, v) : 
 
-    u = int(u * texture.shape[0])
-    v = int((1-v) * texture.shape[1])
-    return texture[v,u] / 255.0
+    h, w = texture.shape[0], texture.shape[1]
+    u = np.clip(u, 0.0, 1.0)
+    v = np.clip(v, 0.0, 1.0)
+
+    x = min(int(u * w), w - 1)
+    y = min(int((1.0 - v) * h), h - 1)
+    return texture[y, x] / 255.0
 
 def sampleBilinear(texture, u, v) : 
 
-    x = u * (texture.shape[0]-1)
-    y = (1-v) * (texture.shape[1]-1)
+    h, w = texture.shape[0], texture.shape[1]
+    u = np.clip(u, 0.0, 1.0)
+    v = np.clip(v, 0.0, 1.0)
+
+    x = u * (w - 1)
+    y = (1.0 - v) * (h - 1)
 
     x0 = int(x)
     x1 = x0 + 1
-    x1 = min(x1, texture.shape[0]-1)
+    x1 = min(x1, w - 1)
     y0 = int(y)
     y1 = y0 + 1
-    y1 = min(y1, texture.shape[1]-1)
+    y1 = min(y1, h - 1)
    
     tx = x - x0
     ty = y - y0
 
-    c00 = texture[x0,y0] / 255.0
-    c10 = texture[x1,y0] / 255.0
-    c01 = texture[x0,y1] / 255.0
-    c11 = texture[x1,y1] / 255.0
+    c00 = texture[y0, x0] / 255.0
+    c10 = texture[y0, x1] / 255.0
+    c01 = texture[y1, x0] / 255.0
+    c11 = texture[y1, x1] / 255.0
 
     c0 = (1-tx)*c00 + tx*c10
     c1 = (1-tx)*c01 + tx*c11
@@ -73,10 +79,11 @@ def sampleBilinear(texture, u, v) :
 
 # sample with mipmaps
 def sampleMipmaps(mipmaps, u, v, lod, mipmap_lookup_method, texel_method, fragment_properties=None):
+    max_lod = len(mipmaps) - 1
+    lod = float(np.nan_to_num(lod, nan=0.0, posinf=max_lod, neginf=0.0))
+    lod = float(np.clip(lod, 0.0, max_lod))
 
     if mipmap_lookup_method == 'nearest' :
-        # Clamp lod to valid range to handle infinity/NaN
-        lod = np.clip(lod, 0, len(mipmaps)-1)
         lod = int(round(lod))
 
         if texel_method == 'nearest' :
@@ -91,11 +98,15 @@ def sampleMipmaps(mipmaps, u, v, lod, mipmap_lookup_method, texel_method, fragme
     elif mipmap_lookup_method == 'trilinear' :
         lod0 = int(np.floor(lod))
         lod1 = int(np.ceil(lod))
-        lod0 = min(lod0, len(mipmaps)-1)
-        lod1 = min(lod1, len(mipmaps)-1)
 
-        c0 = sampleBilinear(mipmaps[lod0], u, v)
-        c1 = sampleBilinear(mipmaps[lod1], u, v)
+        if texel_method == 'nearest':
+            c0 = sample(mipmaps[lod0], u, v)
+            c1 = sample(mipmaps[lod1], u, v)
+        elif texel_method == 'bilinear':
+            c0 = sampleBilinear(mipmaps[lod0], u, v)
+            c1 = sampleBilinear(mipmaps[lod1], u, v)
+        else:
+            raise ValueError("Only nearest and bilinear methods for texel sampling are supported")
 
         t = lod - lod0
         return (1-t)*c0 + t*c1
@@ -149,7 +160,7 @@ def sampleMipmaps(mipmaps, u, v, lod, mipmap_lookup_method, texel_method, fragme
                 v_offset,
                 lod,
                 'trilinear',
-                'bilinear'
+                texel_method
             )
             color += c
 
@@ -171,6 +182,58 @@ class Fragment:
 def edgeSide(p, v0, v1) : 
     return (p[0]-v0[0])*(v1[1]-v0[1]) - (p[1]-v0[1])*(v1[0]-v0[0])
 
+def clip_triangle(vertices):
+    planes = [
+        lambda v: v[0] + v[3],
+        lambda v: -v[0] + v[3],
+        lambda v: v[1] + v[3],
+        lambda v: -v[1] + v[3],
+        lambda v: v[2],
+        lambda v: -v[2] + v[3],
+    ]
+
+    polygon = list(vertices)
+    for plane in planes:
+        if not polygon:
+            return []
+
+        clipped = []
+        prev = polygon[-1]
+        prev_dist = plane(prev)
+        prev_inside = prev_dist >= 0.0
+
+        for curr in polygon:
+            curr_dist = plane(curr)
+            curr_inside = curr_dist >= 0.0
+
+            if curr_inside != prev_inside:
+                t = prev_dist / (prev_dist - curr_dist)
+                clipped.append(prev + t * (curr - prev))
+
+            if curr_inside:
+                clipped.append(curr)
+
+            prev = curr
+            prev_dist = curr_dist
+            prev_inside = curr_inside
+
+        polygon = clipped
+
+    triangles = []
+    for i in range(1, len(polygon) - 1):
+        triangles.append((polygon[0], polygon[i], polygon[i + 1]))
+
+    return triangles
+
+def perspective_divide(vertex):
+    ndc_vertex = np.zeros((15))
+    ndc_vertex[0] = vertex[0] / vertex[3]
+    ndc_vertex[1] = vertex[1] / vertex[3]
+    ndc_vertex[2] = vertex[2] / vertex[3]
+    ndc_vertex[3] = 1.0 / vertex[3]
+    ndc_vertex[4:] = vertex[4:]
+    return ndc_vertex
+
 class GraphicPipeline:
     def __init__ (self, width, height):
         self.width = width
@@ -180,7 +243,7 @@ class GraphicPipeline:
 
 
     def VertexShader(self, vertex, data) :
-        outputVertex = np.zeros((14))
+        outputVertex = np.zeros((15))
 
         x = vertex[0]
         y = vertex[1]
@@ -191,24 +254,25 @@ class GraphicPipeline:
 
         vec = np.matmul(data['projMatrix'],np.matmul(data['viewMatrix'],vec))
 
-        outputVertex[0] = vec[0]/vec[3]
-        outputVertex[1] = vec[1]/vec[3]
-        outputVertex[2] = vec[2]/vec[3]
+        outputVertex[0] = vec[0]
+        outputVertex[1] = vec[1]
+        outputVertex[2] = vec[2]
+        outputVertex[3] = vec[3]
 
-        outputVertex[3] = vertex[3]
-        outputVertex[4] = vertex[4]
-        outputVertex[5] = vertex[5]
+        outputVertex[4] = vertex[3]
+        outputVertex[5] = vertex[4]
+        outputVertex[6] = vertex[5]
 
-        outputVertex[6] = data['cameraPosition'][0] - vertex[0]
-        outputVertex[7] = data['cameraPosition'][1] - vertex[1]
-        outputVertex[8] = data['cameraPosition'][2] - vertex[2]
+        outputVertex[7] = data['cameraPosition'][0] - vertex[0]
+        outputVertex[8] = data['cameraPosition'][1] - vertex[1]
+        outputVertex[9] = data['cameraPosition'][2] - vertex[2]
 
-        outputVertex[9] = data['lightPosition'][0] - vertex[0]
-        outputVertex[10] = data['lightPosition'][1] - vertex[1]
-        outputVertex[11] = data['lightPosition'][2] - vertex[2]
+        outputVertex[10] = data['lightPosition'][0] - vertex[0]
+        outputVertex[11] = data['lightPosition'][1] - vertex[1]
+        outputVertex[12] = data['lightPosition'][2] - vertex[2]
 
-        outputVertex[12] = vertex[6]
-        outputVertex[13] = vertex[7]
+        outputVertex[13] = vertex[6]
+        outputVertex[14] = vertex[7]
 
         return outputVertex
 
@@ -216,25 +280,24 @@ class GraphicPipeline:
     def Rasterizer(self, v0, v1, v2) :
         fragments = []
 
-        #culling back face
         area = edgeSide(v0,v1,v2)
-        if area < 0 :
+        if abs(area) < 1e-8:
             return fragments
         
         
         #AABBox computation
         #compute vertex coordinates in screen space
-        v0_image = np.array([0,0])
+        v0_image = np.array([0.0,0.0])
         v0_image[0] = (v0[0]+1.0)/2.0 * self.width 
-        v0_image[1] = ((v0[1]+1.0)/2.0) * self.height 
+        v0_image[1] = (1.0 - v0[1])/2.0 * self.height 
 
-        v1_image = np.array([0,0])
+        v1_image = np.array([0.0,0.0])
         v1_image[0] = (v1[0]+1.0)/2.0 * self.width 
-        v1_image[1] = ((v1[1]+1.0)/2.0) * self.height 
+        v1_image[1] = (1.0 - v1[1])/2.0 * self.height 
 
-        v2_image = np.array([0,0])
+        v2_image = np.array([0.0,0.0])
         v2_image[0] = (v2[0]+1.0)/2.0 * self.width 
-        v2_image[1] = (v2[1]+1.0)/2.0 * self.height 
+        v2_image[1] = (1.0 - v2[1])/2.0 * self.height 
 
 
         # screen coordinates of the triangle
@@ -243,9 +306,9 @@ class GraphicPipeline:
         x2, y2 = v2_image[0], v2_image[1]
 
         # texture coordinates of the triangle
-        u0_tex, v0_tex = v0[12:14]
-        u1_tex, v1_tex = v1[12:14]
-        u2_tex, v2_tex = v2[12:14]
+        u0_tex, v0_tex = v0[13:15]
+        u1_tex, v1_tex = v1[13:15]
+        u2_tex, v2_tex = v2[13:15]
 
         # derrivatives computation
         det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
@@ -289,7 +352,7 @@ class GraphicPipeline:
         for j in range(A[1], B[1]) : 
            for i in range(A[0], B[0]) :
                 x = (i+0.5)/self.width * 2.0 - 1 
-                y = (j+0.5)/self.height * 2.0 - 1
+                y = 1.0 - (j+0.5)/self.height * 2.0
 
                 p = np.array([x,y])
                 
@@ -298,7 +361,10 @@ class GraphicPipeline:
                 area2 = edgeSide(p,v2,v0)
 
                 #test if p is inside the triangle
-                if (area0 >= 0 and area1 >= 0 and area2 >= 0) : 
+                if (
+                    (area > 0 and area0 >= 0 and area1 >= 0 and area2 >= 0)
+                    or (area < 0 and area0 <= 0 and area1 <= 0 and area2 <= 0)
+                ) : 
                     
                     #Computing 2d barricentric coordinates
                     lambda0 = area1/area
@@ -314,8 +380,12 @@ class GraphicPipeline:
                     
                     
                     l = v0.shape[0]
-                    #interpolating
-                    interpolated_data = v0[3:l] * lambda0 + v1[3:l] * lambda1 + v2[3:l] * lambda2
+                    one_over_w = lambda0 * v0[3] + lambda1 * v1[3] + lambda2 * v2[3]
+                    interpolated_data = (
+                        v0[4:l] * v0[3] * lambda0
+                        + v1[4:l] * v1[3] * lambda1
+                        + v2[4:l] * v2[3] * lambda2
+                    ) / one_over_w
                     
                     #Emiting Fragment
                     fragments.append(Fragment(i,j,z, interpolated_data, fragment_properties))
@@ -370,11 +440,11 @@ class GraphicPipeline:
 
         color = np.array([phong,phong,phong]) * texture
 
-        fragment.output = color
+        fragment.output = np.clip(color, 0.0, 1.0)
 
     def draw(self, vertices, triangles, data):
         #Calling vertex shader
-        self.newVertices = np.zeros((vertices.shape[0], 14))
+        self.newVertices = np.zeros((vertices.shape[0], 15))
 
         for i in range(vertices.shape[0]) :
             self.newVertices[i] = self.VertexShader(vertices[i],data)
@@ -382,7 +452,17 @@ class GraphicPipeline:
         fragments = []
         #Calling Rasterizer
         for i in triangles :
-            fragments.extend(self.Rasterizer(self.newVertices[i[0]], self.newVertices[i[1]], self.newVertices[i[2]]))
+            clipped_triangles = clip_triangle([
+                self.newVertices[i[0]],
+                self.newVertices[i[1]],
+                self.newVertices[i[2]]
+            ])
+
+            for clipped in clipped_triangles:
+                v0 = perspective_divide(clipped[0])
+                v1 = perspective_divide(clipped[1])
+                v2 = perspective_divide(clipped[2])
+                fragments.extend(self.Rasterizer(v0, v1, v2))
         
         for f in fragments:
             self.fragmentShader(f,data)

@@ -18,37 +18,37 @@ from camera import Camera
 from projection import Projection
 
 
-position = np.array([1.1,1.1,1.1])
-lookAt = np.array([-0.577,-0.577,-0.577])
-up = np.array([0.33333333,  0.33333333, -0.66666667])
-right = np.array([-0.57735027,  0.57735027,  0.])
+position = np.array([0.0, 1.2, 2.5])
+lookAt = np.array([0.0, 0.0, -1.0])
+up = np.array([0.0, 1.0, 0.0])
+right = np.array([1.0, 0.0, 0.0])
 
 cam = Camera(position, lookAt, up, right)
 
 nearPlane = 0.1
-farPlane = 10.0
-fov = 1.91986
+farPlane = 20.0
+fov = 1.2
 aspectRatio = width/height
 
 proj = Projection(nearPlane ,farPlane,fov, aspectRatio) 
 
 
-lightPosition = np.array([10,0,10])
+lightPosition = np.array([0.0, 8.0, 2.0])
 
 from readply import readply
 
-vertices, triangles = readply('suzanne.ply')
+vertices, triangles = readply('flat_quad.ply')
 
 
 # load and show an image with Pillow
 from PIL import Image
 from numpy import asarray
 # Open the image form working directory
-image = asarray(Image.open('suzanne.png'))
+image = asarray(Image.open('checkerboard.png').convert('RGB'))
 
-mipmapLookupMethod = 'nearest'
-texelMethod = 'nearest'
-mimapGenerationMethod = 'box'
+mipmapLookupMethod = 'trilinear' # nearest / trilinear / anisotropic
+texelMethod = 'bilinear' # nearest / bilinear 
+mimapGenerationMethod = 'box' # nearest / box / gaussian
 mipmaps = generateMipmaps(image, mimapGenerationMethod)
 
 data = dict([
