@@ -72,9 +72,9 @@ def sampleBilinear(texture, u, v) :
     return c
 
 # sample with mipmaps
-def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method, fragment_properties=None):
+def sampleMipmaps(mipmaps, u, v, lod, mipmap_lookup_method, texel_method, fragment_properties=None):
 
-    if mip_method == 'nearest' :
+    if mipmap_lookup_method == 'nearest' :
         # Clamp lod to valid range to handle infinity/NaN
         lod = np.clip(lod, 0, len(mipmaps)-1)
         lod = int(round(lod))
@@ -88,7 +88,7 @@ def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method, fragment_propert
         else:
             raise ValueError("Only nearest and bilinear methods for texel sampling are supported")
 
-    elif mip_method == 'trilinear' :
+    elif mipmap_lookup_method == 'trilinear' :
         lod0 = int(np.floor(lod))
         lod1 = int(np.ceil(lod))
         lod0 = min(lod0, len(mipmaps)-1)
@@ -99,7 +99,7 @@ def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method, fragment_propert
 
         t = lod - lod0
         return (1-t)*c0 + t*c1
-    elif mip_method == 'anisotropic' :
+    elif mipmap_lookup_method == 'anisotropic' :
         tex_h, tex_w, _ = mipmaps[0].shape
 
         du_dx = fragment_properties['du_dx'] * tex_w
@@ -360,7 +360,7 @@ class GraphicPipeline:
             fragment.interpolated_data[9], # u
             fragment.interpolated_data[10], # v
             lod,
-            data['mipmapMethod'],
+            data['mipmapLookupMethod'],
             data['texelMethod'],
             fragment.properties #anisostropic filters needs partial derivatives for the fragment
         )

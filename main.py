@@ -46,9 +46,10 @@ from numpy import asarray
 # Open the image form working directory
 image = asarray(Image.open('suzanne.png'))
 
-mipmapMethod = 'nearest'
+mipmapLookupMethod = 'nearest'
 texelMethod = 'nearest'
-mipmaps = generateMipmaps(image, mipmapMethod)
+mimapGenerationMethod = 'box'
+mipmaps = generateMipmaps(image, mimapGenerationMethod)
 
 data = dict([
   ('viewMatrix',cam.getMatrix()),
@@ -57,7 +58,7 @@ data = dict([
   ('lightPosition',lightPosition),
   ('texture', image),
   ('mipmaps', mipmaps),
-  ('mipmapMethod', mipmapMethod),
+  ('mipmapLookupMethod', mipmapLookupMethod),
   ('texelMethod', texelMethod)
 ])
 
