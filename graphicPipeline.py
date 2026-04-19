@@ -43,7 +43,6 @@ def sample(texture, u, v) :
     u = int(u * texture.shape[0])
     v = int((1-v) * texture.shape[1])
     return texture[v,u] / 255.0
-    pass
 
 def sampleBilinear(texture, u, v) : 
 
@@ -73,11 +72,12 @@ def sampleBilinear(texture, u, v) :
     return c
 
 # sample with mipmaps
-def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method):
+def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method, fragment_properties=None):
 
     if mip_method == 'nearest' :
+        # Clamp lod to valid range to handle infinity/NaN
+        lod = np.clip(lod, 0, len(mipmaps)-1)
         lod = int(round(lod))
-        lod = min(lod, len(mipmaps)-1)
 
         if texel_method == 'nearest' :
             return sample(mipmaps[lod], u, v)
@@ -99,17 +99,73 @@ def sampleMipmaps(mipmaps, u, v, lod, mip_method, texel_method):
 
         t = lod - lod0
         return (1-t)*c0 + t*c1
+    elif mip_method == 'anisotropic' :
+        tex_h, tex_w, _ = mipmaps[0].shape
+
+        du_dx = fragment_properties['du_dx'] * tex_w
+        dv_dx = fragment_properties['dv_dx'] * tex_h
+        du_dy = fragment_properties['du_dy'] * tex_w
+        dv_dy = fragment_properties['dv_dy'] * tex_h
+
+        #dervivative vectors
+        dx = np.array([du_dx, dv_dx])
+        dy = np.array([du_dy, dv_dy])
+
+        len_x = np.linalg.norm(dx)
+        len_y = np.linalg.norm(dy)
+
+        len_x = max(len_x, 1e-8) # euclidean norms of derivative vectors
+        len_y = max(len_y, 1e-8)
+
+        max_aniso = 8.0  #how many samples we want to process along the major axis at most (could be another nt, like 16)
+        if len_x > len_y:
+            major = dx
+            minor_len = len_y
+            ratio = len_x / len_y
+        else:
+            major = dy
+            minor_len = len_x
+            ratio = len_y / len_x
+
+        samples = int(min(max_aniso, max(1.0, ratio)))
+
+        major_dir = major / np.linalg.norm(major) #normalizing the vector
+
+        lod = np.log2(max(minor_len, 1e-8))  # computing lod based on minor axis
+        lod = max(lod, 0.0)
+
+        # accumulating the final colour
+        color = np.zeros(3)
+
+        for i in range(samples):
+            # distribute samples along major axis
+            t = (i + 0.5) / samples - 0.5
+            u_offset = u + t * major_dir[0] / tex_w
+            v_offset = v + t * major_dir[1] / tex_h
+
+            c = sampleMipmaps(
+                mipmaps,
+                u_offset,
+                v_offset,
+                lod,
+                'trilinear',
+                'bilinear'
+            )
+            color += c
+
+        return color / samples
     
     else:
         raise ValueError("This method for mipmap sampling doesn't exist")
 
 
 class Fragment:
-    def __init__(self, x : int, y : int, depth : float, interpolated_data ):
+    def __init__(self, x : int, y : int, depth : float, interpolated_data, properties):
         self.x = x
         self.y = y
         self.depth = depth
         self.interpolated_data = interpolated_data
+        self.properties = properties
         self.output = []
 
 def edgeSide(p, v0, v1) : 
@@ -180,6 +236,38 @@ class GraphicPipeline:
         v2_image[0] = (v2[0]+1.0)/2.0 * self.width 
         v2_image[1] = (v2[1]+1.0)/2.0 * self.height 
 
+
+        # screen coordinates of the triangle
+        x0, y0 = v0_image[0], v0_image[1]
+        x1, y1 = v1_image[0], v1_image[1]
+        x2, y2 = v2_image[0], v2_image[1]
+
+        # texture coordinates of the triangle
+        u0_tex, v0_tex = v0[12:14]
+        u1_tex, v1_tex = v1[12:14]
+        u2_tex, v2_tex = v2[12:14]
+
+        # derrivatives computation
+        det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+
+        # Skip degenerate triangles (zero area in screen space)
+        if abs(det) < 1e-8:
+            return fragments
+
+        du_dx = ((u1_tex - u0_tex) * (y2 - y0) - (u2_tex - u0_tex) * (y1 - y0)) / det
+        du_dy = (-(u1_tex - u0_tex) * (x2 - x0) + (u2_tex - u0_tex) * (x1 - x0)) / det
+
+        dv_dx = ((v1_tex - v0_tex) * (y2 - y0) - (v2_tex - v0_tex) * (y1 - y0)) / det
+        dv_dy = (-(v1_tex - v0_tex) * (x2 - x0) + (v2_tex - v0_tex) * (x1 - x0)) / det
+
+        fragment_properties = dict([
+            ('du_dx', du_dx),
+            ('du_dy', du_dy),
+            ('dv_dx', dv_dx),
+            ('dv_dy', dv_dy)
+        ])
+
+
         #compute the two point forming the AABBox
         A = np.min(np.array([v0_image,v1_image,v2_image]), axis = 0)
         B = np.max(np.array([v0_image,v1_image,v2_image]), axis = 0)
@@ -230,7 +318,7 @@ class GraphicPipeline:
                     interpolated_data = v0[3:l] * lambda0 + v1[3:l] * lambda1 + v2[3:l] * lambda2
                     
                     #Emiting Fragment
-                    fragments.append(Fragment(i,j,z, interpolated_data))
+                    fragments.append(Fragment(i,j,z, interpolated_data, fragment_properties))
 
         return fragments
     
@@ -256,8 +344,29 @@ class GraphicPipeline:
         phong = ka * ambient + kd * diffuse + ks * specular
         phong = np.ceil(phong*4 +1 )/6.0
 
-        texture = sample(data['texture'], fragment.interpolated_data[9], fragment.interpolated_data[10])
 
+        # find LOD
+        tex_h, tex_w, _ = data['texture'].shape
+
+        rho_x = np.sqrt((fragment.properties['du_dx'] * tex_w)**2 + (fragment.properties['dv_dx'] * tex_h)**2)
+        rho_y = np.sqrt((fragment.properties['du_dy'] * tex_w)**2 + (fragment.properties['dv_dy'] * tex_h)**2)
+
+        rho = max(rho_x, rho_y)
+        lod = np.log2(max(rho, 1e-8))
+        lod = max(lod, 0.0)
+
+        texture = sampleMipmaps(
+            data['mipmaps'],
+            fragment.interpolated_data[9], # u
+            fragment.interpolated_data[10], # v
+            lod,
+            data['mipmapMethod'],
+            data['texelMethod'],
+            fragment.properties #anisostropic filters needs partial derivatives for the fragment
+        )
+
+        # old
+        # texture = sample(data['texture'], fragment.interpolated_data[9], fragment.interpolated_data[10])
 
         color = np.array([phong,phong,phong]) * texture
 
@@ -283,5 +392,3 @@ class GraphicPipeline:
                 
                 self.image[f.y][f.x] = f.output
                 
-            
-
