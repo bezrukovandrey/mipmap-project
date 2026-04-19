@@ -250,7 +250,7 @@ class GraphicPipeline:
         # derrivatives computation
         det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
 
-        # Skip degenerate triangles (zero area in screen space)
+        # skip degenerate triangles (zero area in screen space)
         if abs(det) < 1e-8:
             return fragments
 
