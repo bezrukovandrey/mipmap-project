@@ -98,15 +98,12 @@ def sampleMipmaps(mipmaps, u, v, lod, mipmap_lookup_method, texel_method, fragme
     elif mipmap_lookup_method == 'trilinear' :
         lod0 = int(np.floor(lod))
         lod1 = int(np.ceil(lod))
-
-        if texel_method == 'nearest':
-            c0 = sample(mipmaps[lod0], u, v)
-            c1 = sample(mipmaps[lod1], u, v)
-        elif texel_method == 'bilinear':
+        
+        if texel_method == 'bilinear':
             c0 = sampleBilinear(mipmaps[lod0], u, v)
             c1 = sampleBilinear(mipmaps[lod1], u, v)
         else:
-            raise ValueError("Only nearest and bilinear methods for texel sampling are supported")
+            raise ValueError("Only bilinear method for texel sampling is supported")
 
         t = lod - lod0
         return (1-t)*c0 + t*c1
@@ -118,7 +115,7 @@ def sampleMipmaps(mipmaps, u, v, lod, mipmap_lookup_method, texel_method, fragme
         du_dy = fragment_properties['du_dy'] * tex_w
         dv_dy = fragment_properties['dv_dy'] * tex_h
 
-        #dervivative vectors
+        #derivative vectors
         dx = np.array([du_dx, dv_dx])
         dy = np.array([du_dy, dv_dy])
 
