@@ -1,93 +1,78 @@
-# TextureMipMap_Filtering
+# Mipmap Filtering for 3D Textured Rendering
 
+This project was developed as part of a 3D graphics course and focuses on one of the most important techniques used in real-time rendering: mipmapping and texture filtering.
 
+The goal was to build a small graphics pipeline from scratch in Python and study how different texture sampling strategies affect image quality and performance, especially when objects appear at different distances from the camera.
 
-## Getting started
+## Project idea
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+The renderer loads simple 3D meshes, projects them into screen space, rasterizes triangles, applies lighting, and samples textures using various filtering modes. The project explores:
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- perspective projection and camera transforms
+- triangle rasterization and depth testing
+- texture mapping on 3D surfaces
+- mipmap generation from a source texture
+- nearest, bilinear, trilinear and anisotropic filtering
+- visual comparison of rendering quality at different levels of detail
 
-## Add your files
+## Why mipmaps matter
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+When a textured object is far away, a single high-resolution texture may be sampled at a very small scale. This causes aliasing, blur, and visible artifacts. Mipmaps solve this by precomputing a pyramid of progressively lower-resolution versions of the texture and choosing the most appropriate level for a given screen footprint.
 
+This project demonstrates how different mipmap methods and sampling techniques affect the final image, especially on checkerboard and brick-wall textures.
+
+## Main components
+
+- `main.py` : entry point that creates a camera, projection, and rasterizer pipeline and renders a textured quad
+- `graphicPipeline.py` : custom rasterization pipeline, mipmap generation, texture sampling, and fragment shading
+- `pipelineVisual.py` : generates visualizations of the mipmap stack and 3D pyramid
+- `camera.py` and `projection.py` : camera and projection math
+- `readply.py` and `.ply` model files : mesh loading and example geometry
+- `checkerboard.png`, `brickwall.png` : test textures
+
+## Features implemented
+
+- custom 3D rendering pipeline in Python
+- camera and perspective projection
+- linear interpolation and barycentric rasterization
+- depth buffer for hidden surface removal
+- Phong-style lighting approximation
+- texture sampling with nearest and bilinear texel lookup
+- mipmap generation using nearest, box, and Gaussian downsampling
+- trilinear and anisotropic LOD-based sampling
+
+## Visual results
+
+The project includes several generated images that show both the technical process and final results. The most complete summary is the poster image:
+
+![Poster summary](poster_mipmap.png)
+
+Additional visualizations created by the project:
+
+![Mipmap stack](mipmap_flat_stack.png)
+
+![3D mipmap pyramid](mipmap_3d_pyramid.png)
+
+These images help explain how the texture is reduced across mipmap levels and how different filtering strategies behave visually.
+
+## How to run
+
+From the repository root:
+
+```bash
+python main.py
 ```
-cd existing_repo
-git remote add origin https://gricad-gitlab.univ-grenoble-alpes.fr/bezrukoa/texturemipmap_filtering.git
-git branch -M main
-git push -uf origin main
+
+This renders the textured scene using the custom pipeline. To generate the mipmap visualizations:
+
+```bash
+python pipelineVisual.py
 ```
 
-## Integrate with your tools
+## Course context
 
-* [Set up project integrations](https://gricad-gitlab.univ-grenoble-alpes.fr/bezrukoa/texturemipmap_filtering/-/settings/integrations)
+This work was created for a 3D graphics course and serves as a practical exploration of texture sampling and mipmapping in real-time rendering. It is a small but complete implementation of the core ideas behind modern graphics pipelines, with a strong focus on how image quality is preserved across varying distances and screen scales.
 
-## Collaborate with your team
+## Summary
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+In short, this project is a compact software renderer that turns texture filtering theory into a visible, interactive result. It shows how mipmaps improve rendering quality by adapting texture resolution to the projected size of a surface, and the accompanying poster makes the results easy to understand at a glance.
