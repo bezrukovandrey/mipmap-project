@@ -47,7 +47,7 @@ The project includes several generated images that show both the technical proce
 
 ![Poster summary](poster_mipmap.png)
 
-Additional visualizations created by the project:
+Visualizations in better quality:
 
 ![Mipmap stack](mipmap_flat_stack.png)
 
